@@ -51,9 +51,12 @@ export const api = {
     apiFetch(`/api/fees/${id}/pay`, { method: 'POST', body: JSON.stringify({ amount, method }) }),
   generateFees: (month: string) =>
     apiFetch('/api/fees/generate', { method: 'POST', body: JSON.stringify({ month }) }),
+  getStudentQr: (id: string) => apiFetch(`/api/students/${id}/qr`),
+  getMe: () => apiFetch('/api/auth/me'),
   getStudentFees: (studentId: string) => apiFetch(`/api/fees/student/${studentId}`),
   getDashboard: () => apiFetch('/api/dashboard/summary'),
   getSettings: () => apiFetch('/api/settings'),
+  getStudentQr: (id: string) => apiFetch(`/api/students/${id}/qr`),
   updateSettings: (data: Record<string, unknown>) =>
     apiFetch('/api/settings', { method: 'PATCH', body: JSON.stringify(data) }),
   getStaff: () => apiFetch('/api/settings/staff'),

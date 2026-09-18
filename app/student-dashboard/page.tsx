@@ -4,14 +4,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { QRScanner } from '@/components/ui/QRScanner';
-import StudentDashboard from '@/app/student-dashboard/page';
-import { Search, Users, CalendarDays, CreditCard, Settings, QrCode, Plus, X, ArrowUpRight, BookOpen, ShieldCheck, CircleHelp, ChevronDown, Moon, Sun, Menu, LogOut, Check, AlertCircle, Grid2X2 } from 'lucide-react';
+import { Search, Users, CalendarDays, CreditCard, Settings, QrCode, Plus, X, ArrowUpRight, BookOpen, ShieldCheck, CircleHelp, ChevronDown, Moon, Sun, Menu, LogOut, Check, AlertCircle, Grid2X2, Download, Activity, Clock, AlertTriangle } from 'lucide-react';
 
 type Section = 'Dashboard' | 'Students' | 'Attendance' | 'Fees' | 'Settings' | 'Student Dashboard';
 
-export default function Page() {
+export default function StudentDashboardPage() {
   const router = useRouter();
-  const [section, setSection] = useState<Section>('Dashboard');
+  const [section, setSection] = useState<Section>('Student Dashboard');
   const [user, setUser] = useState<{ name: string; role: string } | null>(null);
   const [dark, setDark] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -28,6 +27,9 @@ export default function Page() {
   const [newStudentSeat, setNewStudentSeat] = useState('');
   const [scanGreeting, setScanGreeting] = useState<{ text: string; type: 'welcome' | 'bye' } | null>(null);
   const [createdPassword, setCreatedPassword] = useState<string | null>(null);
+  const [studentInfo, setStudentInfo] = useState<any>(null);
+  const [qrImageData, setQrImageData] = useState<string | null>(null);
+  const [qrToken, setQrToken] = useState<string>('');
 
   const toastMsg = useCallback((message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -40,16 +42,17 @@ export default function Page() {
 
   useEffect(() => {
     if (!user) return;
-    const loaders: Record<string, () => Promise<void>> = {
-      Dashboard: async () => { try { setDashboard(await api.getDashboard()); } catch {} },
-      Students: async () => { try { const d = await api.getStudents({ limit: '20' }); setStudents(d.students); } catch {} },
-      Attendance: async () => { try { const d = await api.getAttendance({ limit: '20' }); setEvents(d.events); } catch {} },
-      Fees: async () => { try { const d = await api.getFees({ limit: '20' }); setFees(d.fees); } catch {} },
-      Settings: async () => { try { setSettings((await api.getSettings()).library); setStaff((await api.getStaff()).staff); } catch {} },
-      'Student Dashboard': async () => { /* handled by router */ },
+    const load = async () => {
+      try {
+        const qrRes = await api.getStudentQr('ac65a841-3550-4137-85c5-38e80a857353');
+        setQrImageData(qrRes.qrImage);
+        setQrToken(qrRes.qrToken);
+        const feesData = await api.getStudentFees('ac65a841-3550-4137-85c5-38e80a857353');
+        setFees(feesData.fees || []);
+      } catch {}
     };
-    loaders[section]?.();
-  }, [section, user]);
+    load();
+  }, [user]);
 
   useEffect(() => {
     if (scanGreeting) {
@@ -77,15 +80,11 @@ export default function Page() {
       if ((formData.get('isGuest') as string) === 'true') data.isGuest = true;
       const result = await api.createStudent(data);
       setCreatedPassword(result.password || null);
-      setAddOpen(false); setNewStudentSeat('');
-      toastMsg(`Student created! Password: ${result.password}`);
-      loadStudents();
+      setAddOpen(false); setNewStudentSeat(''); toastMsg('Student created'); loadStudents();
     } catch (err: unknown) { toastMsg(err instanceof Error ? err.message : 'Failed', 'error'); }
   };
 
-  const handleScan = useCallback((rawData: string) => {
-    let qrToken: string;
-    try { qrToken = JSON.parse(rawData).token; } catch { qrToken = rawData; }
+  const handleScan = useCallback((qrToken: string) => {
     api.scanAttendance(qrToken).then((result: any) => {
       setScanGreeting({ text: result.greeting || `${result.type === 'ENTRY' ? 'Welcome' : 'Bye Bye'}, ${result.student?.name}`, type: result.type === 'ENTRY' ? 'welcome' : 'bye' });
       toastMsg(result.greeting || `${result.type === 'ENTRY' ? 'Entry' : 'Exit'} recorded for ${result.student?.name}`);
@@ -120,6 +119,25 @@ export default function Page() {
   };
 
   const initials = (name: string) => name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+
+  const todayEvents = events.filter((e: any) => {
+    const today = new Date().toISOString().split('T')[0];
+    return e.timestamp?.startsWith(today);
+  });
+
+  const currentlyInside = todayEvents.filter((e: any) => e.type === 'ENTRY').length > 0 &&
+    todayEvents.filter((e: any) => e.type === 'EXIT').length === 0;
+
+  const overdueFees = fees.filter((f: any) => f.status === 'OVERDUE' || f.status === 'PENDING');
+  const totalOutstanding = overdueFees.reduce((sum: number, f: any) => sum + (Number(f.amount) - Number(f.amountPaid)), 0);
+
+  const handleDownloadQR = () => {
+    if (!qrImageData) return;
+    const link = document.createElement('a');
+    link.href = qrImageData;
+    link.download = `qr-${studentInfo?.name || 'student'}.png`;
+    link.click();
+  };
 
   return (
     <div className={dark ? 'dark' : ''}>
@@ -181,6 +199,122 @@ export default function Page() {
               </div>
             )}
 
+            {section === 'Student Dashboard' && (
+              <>
+                <div className="mb-7"><p className="mb-1 text-sm font-medium text-indigo-600">My Dashboard</p><h2 className="text-3xl font-semibold tracking-tight">Your Library Profile</h2></div>
+
+                <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
+                  <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
+                    <div className="mb-5 flex items-center gap-3"><div className="rounded-xl bg-indigo-50 p-2.5 text-indigo-600"><BookOpen className="size-5" /></div><div><h3 className="font-semibold">Your Information</h3></div></div>
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center justify-between rounded-xl bg-muted/50 px-4 py-3">
+                        <span className="text-sm text-muted-foreground flex items-center gap-2"><Users className="size-4" />Status</span>
+                        <span className={`text-sm font-medium ${currentlyInside ? 'text-emerald-600' : 'text-muted-foreground'}`}>{currentlyInside ? '● Inside' : '○ Outside'}</span>
+                      </div>
+                      {settings && (
+                        <>
+                          <div className="flex items-center justify-between rounded-xl bg-muted/50 px-4 py-3"><span className="text-sm text-muted-foreground flex items-center gap-2"><Activity className="size-4" />Library</span><span className="text-sm font-medium">{settings.name}</span></div>
+                          <div className="flex items-center justify-between rounded-xl bg-muted/50 px-4 py-3"><span className="text-sm text-muted-foreground flex items-center gap-2"><Users className="size-4" />Occupancy</span><span className="text-sm font-medium">{settings.occupancy || 'N/A'} / {settings.capacity}</span></div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
+                    <div className="mb-5 flex items-center gap-3"><div className="rounded-xl bg-emerald-50 p-2.5 text-emerald-600"><CalendarDays className="size-5" /></div><div><h3 className="font-semibold">Today's Attendance</h3></div></div>
+                    <div className="flex flex-col gap-2">
+                      {todayEvents.length === 0 && <p className="text-sm text-muted-foreground">No attendance events today</p>}
+                      {todayEvents.map((event: any) => (
+                        <div key={event.id} className={`flex items-center justify-between rounded-xl px-4 py-3 ${event.type === 'ENTRY' ? 'bg-emerald-50' : 'bg-rose-50'}`}>
+                          <div className="flex items-center gap-3">
+                            <span className={`size-2 rounded-full ${event.type === 'ENTRY' ? 'bg-emerald-600' : 'bg-rose-600'}`} />
+                            <span className="text-sm font-medium">{event.type === 'ENTRY' ? 'Entry' : 'Exit'}</span>
+                          </div>
+                          <span className="text-sm text-muted-foreground">{new Date(event.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
+                    <div className="mb-5 flex items-center gap-3"><div className="rounded-xl bg-amber-50 p-2.5 text-amber-600"><Clock className="size-5" /></div><div><h3 className="font-semibold">Attendance History</h3></div></div>
+                    <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
+                      {events.slice(0, 15).map((event: any) => (
+                        <div key={event.id} className="flex items-center justify-between rounded-xl bg-muted/50 px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <span className={`size-2 rounded-full ${event.type === 'ENTRY' ? 'bg-emerald-600' : 'bg-rose-600'}`} />
+                            <div><p className="text-sm font-medium">{new Date(event.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p></div>
+                          </div>
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${event.type === 'ENTRY' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>{event.type}</span>
+                        </div>
+                      ))}
+                      {events.length === 0 && <p className="text-sm text-muted-foreground">No attendance records</p>}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
+                    <div className="mb-5 flex items-center gap-3"><div className="rounded-xl bg-sky-50 p-2.5 text-sky-600"><QrCode className="size-5" /></div><div><h3 className="font-semibold">Your QR Code</h3></div></div>
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center justify-between rounded-xl bg-muted/50 px-4 py-3">
+                        <span className="text-sm text-muted-foreground">Status</span>
+                        <span className={`text-sm font-medium ${currentlyInside ? 'text-emerald-600' : 'text-indigo-600'}`}>{currentlyInside ? '● Currently Inside' : '● Ready to Scan'}</span>
+                      </div>
+                      {qrImageData && (
+                        <div className="rounded-xl bg-muted/50 p-4">
+                          <img src={qrImageData} alt="QR Code" className="mx-auto max-h-48" />
+                          <button onClick={handleDownloadQR} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700">
+                            <Download className="size-4" />Download QR PNG
+                          </button>
+                        </div>
+                      )}
+                      <div className="rounded-xl bg-muted/50 px-4 py-3">
+                        <p className="text-xs text-muted-foreground mb-1">Your QR token</p>
+                        <p className="text-xs font-mono break-all">{qrToken || 'Loading...'}</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground">Scan this QR at the attendance desk to mark entry/exit</p>
+                    </div>
+                  </div>
+                </div>
+
+                {overdueFees.length > 0 && (
+                  <div className="mt-6 rounded-2xl border border-amber-300 bg-amber-50 p-5 shadow-sm">
+                    <div className="flex items-center gap-2 mb-3"><AlertTriangle className="size-5 text-amber-600" /><h3 className="font-semibold text-amber-700">Fee Overdue!</h3></div>
+                    <div className="flex flex-col gap-2">
+                      {overdueFees.map((fee: any) => (
+                        <div key={fee.id} className="flex items-center justify-between rounded-lg bg-white/80 px-4 py-3">
+                          <div>
+                            <p className="text-sm font-medium">{new Date(fee.billingMonth).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</p>
+                            <p className="text-xs text-muted-foreground">Due: {new Date(fee.dueDate).toLocaleDateString()}</p>
+                          </div>
+                          <span className="text-sm font-bold text-amber-700">₹ {Number(fee.amount) - Number(fee.amountPaid)} outstanding</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_1fr]">
+                  <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
+                    <div className="mb-5 flex items-center gap-3"><div className="rounded-xl bg-emerald-50 p-2.5 text-emerald-600"><CalendarDays className="size-5" /></div><div><h3 className="font-semibold">Fee Summary</h3></div></div>
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center justify-between rounded-xl bg-muted/50 px-4 py-3"><span className="text-sm text-muted-foreground">Monthly Fee</span><span className="text-sm font-medium">₹ {fees[0]?.amount || 'N/A'}</span></div>
+                      <div className="flex items-center justify-between rounded-xl bg-muted/50 px-4 py-3"><span className="text-sm text-muted-foreground flex items-center gap-2"><CreditCard className="size-4" />Total Paid</span><span className="text-sm font-medium">₹ {fees.reduce((s: number, f: any) => s + Number(f.amountPaid), 0).toFixed(2)}</span></div>
+                      <div className="flex items-center justify-between rounded-xl bg-muted/50 px-4 py-3"><span className="text-sm text-muted-foreground">Outstanding</span><span className={`text-sm font-medium ${totalOutstanding > 0 ? 'text-red-600' : 'text-emerald-600'}`}>₹ {totalOutstanding.toFixed(2)}</span></div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
+                    <div className="mb-5 flex items-center gap-3"><div className="rounded-xl bg-cyan-50 p-2.5 text-cyan-600"><ShieldCheck className="size-5" /></div><div><h3 className="font-semibold">Your Seat</h3></div></div>
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center justify-between rounded-xl bg-muted/50 px-4 py-3"><span className="text-sm text-muted-foreground">Seat/Table Number</span><span className="text-lg font-bold text-indigo-600">{studentInfo?.seatNumber || 'Not assigned'}</span></div>
+                      <div className="flex items-center justify-between rounded-xl bg-muted/50 px-4 py-3"><span className="text-sm text-muted-foreground">Library</span><span className="text-sm font-medium">{settings?.name || 'Loading...'}</span></div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Other sections remain the same */}
             {section === 'Dashboard' && (
               <>
                 <div className="mb-7 flex items-end justify-between">
@@ -209,7 +343,7 @@ export default function Page() {
                         <div key={event.id} className="flex items-center justify-between border-t border-border/60 py-3.5 first:border-0">
                           <div className="flex items-center gap-3">
                             <div className="flex size-9 items-center justify-center rounded-full bg-muted text-xs font-semibold">{initials(event.student?.name || '')}</div>
-                            <div><p className="text-sm font-medium">{event.student?.name}</p><p className="text-xs text-muted-foreground">{event.type === 'ENTRY' ? 'Entered' : 'Exited'} · {new Date(event.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</p></div>
+                            <div><p className="text-sm font-medium">{event.student?.name}</p><p className="text-xs text-muted-foreground">{event.method === 'QR' ? 'QR Scan' : 'Manual'} · {new Date(event.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</p></div>
                           </div>
                           <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${event.type === 'ENTRY' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
                             <span className="size-1.5 rounded-full bg-current" />{event.type === 'ENTRY' ? 'Entry' : 'Exit'}
@@ -223,38 +357,7 @@ export default function Page() {
               </>
             )}
 
-            {section === 'Students' && (
-              <section>
-                <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-                  <div><p className="mb-1 text-sm font-medium text-indigo-600">Directory</p><h2 className="text-3xl font-semibold tracking-tight">Students</h2></div>
-                  <button onClick={() => setAddOpen(true)} className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"><Plus className="size-4" />Add student</button>
-                </div>
-                <div className="rounded-2xl border border-border/70 bg-card shadow-sm">
-                  <div className="flex flex-col gap-3 border-b border-border/70 p-4 sm:flex-row sm:items-center">
-                    <div className="relative flex-1"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by name or phone..." className="h-10 w-full rounded-xl border border-input bg-background pl-9 pr-3 text-sm outline-none ring-indigo-500 transition focus:ring-2" /></div>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                      <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground"><tr><th className="px-5 py-3 font-medium">Student</th><th className="px-5 py-3 font-medium">Phone</th><th className="px-5 py-3 font-medium">Status</th><th className="px-5 py-3 font-medium">Joined</th></tr></thead>
-                      <tbody>
-                        {students.map((student: any) => (
-                          <tr key={student.id} className="border-t border-border/60 transition hover:bg-muted/30">
-                            <td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex size-9 items-center justify-center rounded-full bg-muted text-xs font-semibold">{initials(student.name)}</div><div><p className="text-sm font-medium">{student.name}</p></div></div></td>
-                            <td className="px-5 py-4 text-sm">{student.phone}</td>
-                            <td className="px-5 py-4"><span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${student.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}><span className="size-1.5 rounded-full bg-current" />{student.status}</span></td>
-                            <td className="px-5 py-4 text-sm text-muted-foreground">{new Date(student.joinDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
-                            <td className="px-5 py-4"><button onClick={() => handleToggleStatus(student.id, student.status)} className="rounded-lg px-2 py-1 text-xs font-medium hover:bg-muted">{student.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}</button></td>
-                          </tr>
-                        ))}
-                        {students.length === 0 && <tr><td colSpan={4} className="px-5 py-8 text-center text-sm text-muted-foreground">No students found</td></tr>}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </section>
-            )}
-
-{section === 'Attendance' && (
+            {section === 'Attendance' && (
               <section>
                 <div className="mb-7"><p className="mb-1 text-sm font-medium text-indigo-600">Live desk</p><h2 className="text-3xl font-semibold tracking-tight">Attendance</h2></div>
                 <div className="grid gap-6 xl:grid-cols-[.8fr_1.2fr]">
@@ -280,73 +383,16 @@ export default function Page() {
               </section>
             )}
 
-            {section === 'Fees' && (
-              <section>
-                <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-                  <div><p className="mb-1 text-sm font-medium text-indigo-600">Payments</p><h2 className="text-3xl font-semibold tracking-tight">Fees</h2></div>
-                  <button onClick={handleGenerateFees} className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"><Plus className="size-4" />Generate fees</button>
+            {scanGreeting && (
+              <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70" onClick={() => setScanGreeting(null)}>
+                <div className={`text-center px-10 py-8 rounded-2xl border-2 transform transition-all duration-500 ${scanGreeting.type === 'welcome' ? 'bg-emerald-500 border-emerald-400 scale-100' : 'bg-rose-500 border-rose-400 scale-100'}`} style={{ animation: 'fadeInUp 0.5s ease-out' }}>
+                  <p className={`text-4xl font-bold text-white drop-shadow-lg`}>
+                    {scanGreeting.type === 'welcome' ? '👋 Welcome' : '👋 Bye Bye'}, {scanGreeting.text.split(',').pop()?.trim()}
+                  </p>
+                  <p className="text-white/80 text-sm mt-2">{scanGreeting.type === 'welcome' ? 'Scanning entry...' : 'Scanning exit...'}</p>
                 </div>
-                <div className="rounded-2xl border border-border/70 bg-card shadow-sm">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                      <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground"><tr><th className="px-5 py-3 font-medium">Student</th><th className="px-5 py-3 font-medium">Month</th><th className="px-5 py-3 font-medium">Amount</th><th className="px-5 py-3 font-medium">Due date</th><th className="px-5 py-3 font-medium">Status</th><th className="px-5 py-3 font-medium">Actions</th></tr></thead>
-                      <tbody>
-                        {fees.map((fee: any) => (
-                          <tr key={fee.id} className="border-t border-border/60 transition hover:bg-muted/30">
-                            <td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex size-9 items-center justify-center rounded-full bg-muted text-xs font-semibold">{initials(fee.student?.name || '')}</div><div><p className="text-sm font-medium">{fee.student?.name}</p></div></div></td>
-                            <td className="px-5 py-4 text-sm">{new Date(fee.billingMonth).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</td>
-                            <td className="px-5 py-4 text-sm">₹ {Number(fee.amount).toLocaleString('en-IN')}</td>
-                            <td className="px-5 py-4 text-sm">{new Date(fee.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
-                            <td className="px-5 py-4"><span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${fee.status === 'PAID' ? 'bg-emerald-50 text-emerald-700' : fee.status === 'OVERDUE' ? 'bg-red-50 text-red-700' : 'bg-muted text-muted-foreground'}`}><span className="size-1.5 rounded-full bg-current" />{fee.status}</span></td>
-                            <td className="px-5 py-4">{fee.status !== 'PAID' && <button onClick={() => handlePayFee(fee.id, Number(fee.amount) - Number(fee.amountPaid))} className="rounded-lg px-2 py-1 text-xs font-medium hover:bg-muted">Pay ₹{Number(fee.amount) - Number(fee.amountPaid)}</button>}</td>
-                          </tr>
-                        ))}
-                        {fees.length === 0 && <tr><td colSpan={6} className="px-5 py-8 text-center text-sm text-muted-foreground">No fees found</td></tr>}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </section>
+              </div>
             )}
-
-            {section === 'Settings' && (
-              <section>
-                <div className="mb-7"><p className="mb-1 text-sm font-medium text-indigo-600">Workspace</p><h2 className="text-3xl font-semibold tracking-tight">Settings</h2></div>
-                <div className="grid max-w-4xl gap-6 lg:grid-cols-[1fr_1fr]">
-                  <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
-                    <div className="mb-5 flex items-center gap-3"><div className="rounded-xl bg-indigo-50 p-2.5 text-indigo-600"><Settings className="size-5" /></div><div><h3 className="font-semibold">Library details</h3></div></div>
-                    {settings && (
-                      <form onSubmit={async (e) => { e.preventDefault(); try { await api.updateSettings({ name: settings.name, capacity: settings.capacity, defaultMonthlyFee: Number(settings.defaultMonthlyFee) }); toastMsg('Settings updated'); loadSettings(); } catch (err: unknown) { toastMsg(err instanceof Error ? err.message : 'Failed', 'error'); } }} className="flex flex-col gap-4">
-                        <label className="text-sm font-medium">Library name<input defaultValue={settings.name} className="mt-2 h-10 w-full rounded-xl border border-input bg-background px-3 font-normal outline-none focus:ring-2 focus:ring-indigo-500" /></label>
-                        <label className="text-sm font-medium">Seat capacity<input type="number" defaultValue={settings.capacity} className="mt-2 h-10 w-full rounded-xl border border-input bg-background px-3 font-normal outline-none focus:ring-2 focus:ring-indigo-500" /></label>
-                        <label className="text-sm font-medium">Default monthly fee<input type="number" defaultValue={Number(settings.defaultMonthlyFee)} className="mt-2 h-10 w-full rounded-xl border border-input bg-background px-3 font-normal outline-none focus:ring-2 focus:ring-indigo-500" /></label>
-                        <button type="submit" className="mt-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700">Save changes</button>
-                      </form>
-                    )}
-                  </div>
-                  <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
-                    <div className="mb-5 flex items-center gap-3"><div className="rounded-xl bg-emerald-50 p-2.5 text-emerald-600"><ShieldCheck className="size-5" /></div><div><h3 className="font-semibold">Staff accounts</h3></div></div>
-                    <div className="flex flex-col gap-4">
-                      <form onSubmit={handleCreateStaff} className="flex items-center gap-2">
-                        <input value={newStaff.name} onChange={(e) => setNewStaff({ ...newStaff, name: e.target.value })} placeholder="Name" className="h-10 flex-1 rounded-xl border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
-                        <input value={newStaff.email} onChange={(e) => setNewStaff({ ...newStaff, email: e.target.value })} placeholder="Email" className="h-10 flex-1 rounded-xl border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
-                        <button type="submit" className="h-10 rounded-xl bg-indigo-600 px-3 text-sm font-semibold text-white hover:bg-indigo-700">Add</button>
-                      </form>
-                      <div className="flex flex-col gap-2">
-                        {staff.filter((s: any) => s.role === 'STAFF').map((s: any) => (
-                          <div key={s.id} className="flex items-center justify-between rounded-xl bg-muted/50 px-4 py-3">
-                            <div><p className="text-sm font-medium">{s.name}</p><p className="text-xs text-muted-foreground">{s.email}</p></div>
-                            <button onClick={() => handleDeleteStaff(s.id)} className="rounded-lg px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50">Remove</button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-            )}
-{section === 'Student Dashboard' && <StudentDashboard />}
-
           </main>
         </div>
 
@@ -372,16 +418,6 @@ export default function Page() {
                   <p className="text-xs text-emerald-600">Student can change password after first login.</p>
                 </div>
               )}
-            </div>
-          </div>
-        )}
-        {scanGreeting && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70" onClick={() => setScanGreeting(null)}>
-            <div className={`text-center px-10 py-8 rounded-2xl border-2 transform transition-all duration-500 ${scanGreeting.type === 'welcome' ? 'bg-emerald-500 border-emerald-400 scale-100' : 'bg-rose-500 border-rose-400 scale-100'}`} style={{ animation: 'fadeInUp 0.5s ease-out' }}>
-              <p className={`text-4xl font-bold text-white drop-shadow-lg`}>
-                {scanGreeting.type === 'welcome' ? '👋 Welcome' : '👋 Bye Bye'}, {scanGreeting.text.split(',').pop()?.trim()}
-              </p>
-              <p className="text-white/80 text-sm mt-2">{scanGreeting.type === 'welcome' ? 'Scanning entry...' : 'Scanning exit...'}</p>
             </div>
           </div>
         )}

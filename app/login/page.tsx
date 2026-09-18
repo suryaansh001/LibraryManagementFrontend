@@ -16,8 +16,9 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      await api.login(email, password);
-      router.push('/');
+      const result = await api.login(email, password);
+      const role = (result as any).user?.role;
+      router.push(role === 'STAFF' ? '/student-dashboard' : '/');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
