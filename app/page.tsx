@@ -35,7 +35,13 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
-    api.me().then(setUser).catch(() => router.push('/login'));
+    api.me().then((data) => {
+      if (data.user?.role === 'STAFF') {
+        router.replace('/student-dashboard');
+        return;
+      }
+      setUser(data.user);
+    }).catch(() => router.push('/login'));
   }, [router]);
 
   useEffect(() => {
@@ -120,6 +126,8 @@ export default function Page() {
   };
 
   const initials = (name: string) => name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+
+  if (!user) return null;
 
   return (
     <div className={dark ? 'dark' : ''}>

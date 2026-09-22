@@ -37,22 +37,34 @@ export default function StudentDashboardPage() {
   }, []);
 
   useEffect(() => {
-    api.me().then(setUser).catch(() => router.push('/login'));
+    api.me().then((data) => {
+      if (data.user?.role !== 'STAFF') {
+        router.replace('/');
+        return;
+      }
+      setUser(data.user);
+      setStudentInfo(data.student);
+    }).catch(() => router.push('/login'));
   }, [router]);
 
   useEffect(() => {
     if (!user) return;
     const load = async () => {
       try {
-        const qrRes = await api.getStudentQr('ac65a841-3550-4137-85c5-38e80a857353');
+        if (!studentInfo?.id) return;
+        const [qrRes, feesData, settingsData] = await Promise.all([
+          api.getStudentQr(studentInfo.id),
+          api.getStudentFees(studentInfo.id),
+          api.getSettings(),
+        ]);
         setQrImageData(qrRes.qrImage);
         setQrToken(qrRes.qrToken);
-        const feesData = await api.getStudentFees('ac65a841-3550-4137-85c5-38e80a857353');
         setFees(feesData.fees || []);
+        setSettings(settingsData.library);
       } catch {}
     };
     load();
-  }, [user]);
+  }, [user, studentInfo?.id]);
 
   useEffect(() => {
     if (scanGreeting) {
@@ -69,7 +81,7 @@ export default function StudentDashboardPage() {
 
   const handleCreateStudent = async (e: React.FormEvent) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
+    const formData = new FormData(e.currentTarget as HTMLFormElement);
     try {
       const data: any = {
         name: formData.get('name') as string,
@@ -148,11 +160,7 @@ export default function StudentDashboardPage() {
             <div><p className="font-semibold tracking-tight">The Reading Room</p><p className="text-xs text-muted-foreground">Library management</p></div>
           </div>
           <nav className="mt-10 flex flex-1 flex-col gap-1">
-            {[
-              { label: 'Dashboard', icon: Grid2X2 }, { label: 'Students', icon: Users },
-              { label: 'Attendance', icon: CalendarDays }, { label: 'Fees', icon: CreditCard },
-              { label: 'Settings', icon: Settings }, { label: 'Student Dashboard', icon: BookOpen },
-            ].map(({ label, icon: Icon }) => (
+            {[{ label: 'Student Dashboard' as Section, icon: BookOpen }].map(({ label, icon: Icon }) => (
               <button key={label} onClick={() => { setSection(label); setMobileOpen(false); }} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${section === label ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
                 <Icon className="size-[18px]" />{label}
               </button>
@@ -252,7 +260,7 @@ export default function StudentDashboardPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
+                  <div className="order-first rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
                     <div className="mb-5 flex items-center gap-3"><div className="rounded-xl bg-sky-50 p-2.5 text-sky-600"><QrCode className="size-5" /></div><div><h3 className="font-semibold">Your QR Code</h3></div></div>
                     <div className="flex flex-col gap-3">
                       <div className="flex items-center justify-between rounded-xl bg-muted/50 px-4 py-3">
@@ -271,7 +279,7 @@ export default function StudentDashboardPage() {
                         <p className="text-xs text-muted-foreground mb-1">Your QR token</p>
                         <p className="text-xs font-mono break-all">{qrToken || 'Loading...'}</p>
                       </div>
-                      <p className="text-xs text-muted-foreground">Scan this QR at the attendance desk to mark entry/exit</p>
+                      <p className="inline-flex items-center justify-center gap-2 rounded-full bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700"><QrCode className="size-3.5" />Scan at the entrance and exit</p>
                     </div>
                   </div>
                 </div>
@@ -315,7 +323,7 @@ export default function StudentDashboardPage() {
             )}
 
             {/* Other sections remain the same */}
-            {section === 'Dashboard' && (
+            {user?.role === 'OWNER' && section === 'Dashboard' && (
               <>
                 <div className="mb-7 flex items-end justify-between">
                   <div><p className="mb-1 text-sm font-medium text-indigo-600">Overview</p><h2 className="text-3xl font-semibold tracking-tight">Today at a glance</h2></div>
@@ -357,7 +365,7 @@ export default function StudentDashboardPage() {
               </>
             )}
 
-            {section === 'Attendance' && (
+            {user?.role === 'OWNER' && section === 'Attendance' && (
               <section>
                 <div className="mb-7"><p className="mb-1 text-sm font-medium text-indigo-600">Live desk</p><h2 className="text-3xl font-semibold tracking-tight">Attendance</h2></div>
                 <div className="grid gap-6 xl:grid-cols-[.8fr_1.2fr]">
