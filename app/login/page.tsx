@@ -18,7 +18,7 @@ export default function LoginPage() {
     try {
       const result = await api.login(email, password);
       const role = (result as any).user?.role;
-      router.push(role === 'STAFF' ? '/student-dashboard' : '/');
+      router.push(role === 'STAFF' ? '/student-dashboard' : role === 'ADMIN' ? '/admin' : '/');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {

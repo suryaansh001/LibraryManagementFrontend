@@ -51,16 +51,23 @@ export const api = {
     apiFetch(`/api/fees/${id}/pay`, { method: 'POST', body: JSON.stringify({ amount, method }) }),
   generateFees: (month: string) =>
     apiFetch('/api/fees/generate', { method: 'POST', body: JSON.stringify({ month }) }),
-  getStudentQr: (id: string) => apiFetch(`/api/students/${id}/qr`),
   getMe: () => apiFetch('/api/auth/me'),
   getStudentFees: (studentId: string) => apiFetch(`/api/fees/student/${studentId}`),
   getDashboard: () => apiFetch('/api/dashboard/summary'),
   getSettings: () => apiFetch('/api/settings'),
-  getStudentQr: (id: string) => apiFetch(`/api/students/${id}/qr`),
   updateSettings: (data: Record<string, unknown>) =>
     apiFetch('/api/settings', { method: 'PATCH', body: JSON.stringify(data) }),
   getStaff: () => apiFetch('/api/settings/staff'),
   createStaff: (data: Record<string, unknown>) =>
     apiFetch('/api/settings/staff', { method: 'POST', body: JSON.stringify(data) }),
   deleteStaff: (id: string) => apiFetch(`/api/settings/staff/${id}`, { method: 'DELETE' }),
+  getLibraries: () => apiFetch('/api/admin/libraries'),
+  createLibrary: (data: Record<string, unknown>) =>
+    apiFetch('/api/admin/libraries', { method: 'POST', body: JSON.stringify(data) }),
+  updateLibrary: (id: string, data: Record<string, unknown>) =>
+    apiFetch(`/api/admin/libraries/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  toggleLibraryStatus: (id: string) =>
+    apiFetch(`/api/admin/libraries/${id}/status`, { method: 'PATCH' }),
+  updateLibrarySubscription: (id: string, data: Record<string, unknown>) =>
+    apiFetch(`/api/admin/libraries/${id}/subscription`, { method: 'PATCH', body: JSON.stringify(data) }),
 };

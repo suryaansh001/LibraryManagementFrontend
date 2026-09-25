@@ -152,7 +152,7 @@ export default function StudentDashboardPage() {
   };
 
   return (
-    <div className={dark ? 'dark' : ''}>
+    <div className={dark ? 'dark' : 'light'}>
       <div className="min-h-screen bg-background text-foreground">
         <aside className={`fixed inset-y-0 left-0 z-30 flex w-64 flex-col border-r border-border/70 bg-card px-4 py-5 transition-transform md:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
           <div className="flex items-center gap-3 px-3">

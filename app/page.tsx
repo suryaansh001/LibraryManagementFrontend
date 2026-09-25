@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { QRScanner } from '@/components/ui/QRScanner';
 import StudentDashboard from '@/app/student-dashboard/page';
+import { sendStudentCredentials } from '@/lib/emailjs';
 import { Search, Users, CalendarDays, CreditCard, Settings, QrCode, Plus, X, ArrowUpRight, BookOpen, ShieldCheck, CircleHelp, ChevronDown, Moon, Sun, Menu, LogOut, Check, AlertCircle, Grid2X2 } from 'lucide-react';
 
 type Section = 'Dashboard' | 'Students' | 'Attendance' | 'Fees' | 'Settings' | 'Student Dashboard';
@@ -28,6 +29,7 @@ export default function Page() {
   const [newStudentSeat, setNewStudentSeat] = useState('');
   const [scanGreeting, setScanGreeting] = useState<{ text: string; type: 'welcome' | 'bye' } | null>(null);
   const [createdPassword, setCreatedPassword] = useState<string | null>(null);
+  const [credentialEmailStatus, setCredentialEmailStatus] = useState<string | null>(null);
 
   const toastMsg = useCallback((message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -38,6 +40,10 @@ export default function Page() {
     api.me().then((data) => {
       if (data.user?.role === 'STAFF') {
         router.replace('/student-dashboard');
+        return;
+      }
+      if (data.user?.role === 'ADMIN') {
+        router.replace('/admin');
         return;
       }
       setUser(data.user);
@@ -72,7 +78,7 @@ export default function Page() {
 
   const handleCreateStudent = async (e: React.FormEvent) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
+    const formData = new FormData(e.currentTarget as HTMLFormElement);
     try {
       const data: any = {
         name: formData.get('name') as string,
@@ -83,8 +89,19 @@ export default function Page() {
       if ((formData.get('isGuest') as string) === 'true') data.isGuest = true;
       const result = await api.createStudent(data);
       setCreatedPassword(result.password || null);
-      setAddOpen(false); setNewStudentSeat('');
-      toastMsg(`Student created! Password: ${result.password}`);
+      setNewStudentSeat('');
+      try {
+        const emailResult = await sendStudentCredentials({
+          name: data.name,
+          email: data.email,
+          password: result.password,
+          libraryName: settings?.name || 'The Reading Room',
+        });
+        setCredentialEmailStatus(emailResult.sent ? `Credentials emailed to ${data.email}` : 'EmailJS is not configured; share the password below.');
+      } catch (emailError: unknown) {
+        setCredentialEmailStatus(emailError instanceof Error ? emailError.message : 'Credentials were created but email delivery failed.');
+      }
+      toastMsg('Student created');
       loadStudents();
     } catch (err: unknown) { toastMsg(err instanceof Error ? err.message : 'Failed', 'error'); }
   };
@@ -130,7 +147,7 @@ export default function Page() {
   if (!user) return null;
 
   return (
-    <div className={dark ? 'dark' : ''}>
+    <div className={dark ? 'dark' : 'light'}>
       <div className="min-h-screen bg-background text-foreground">
         <aside className={`fixed inset-y-0 left-0 z-30 flex w-64 flex-col border-r border-border/70 bg-card px-4 py-5 transition-transform md:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
           <div className="flex items-center gap-3 px-3">
@@ -143,7 +160,7 @@ export default function Page() {
               { label: 'Attendance', icon: CalendarDays }, { label: 'Fees', icon: CreditCard },
               { label: 'Settings', icon: Settings }, { label: 'Student Dashboard', icon: BookOpen },
             ].map(({ label, icon: Icon }) => (
-              <button key={label} onClick={() => { setSection(label); setMobileOpen(false); }} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${section === label ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+              <button key={label} onClick={() => { setSection(label as Section); setMobileOpen(false); }} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${section === label ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
                 <Icon className="size-[18px]" />{label}
               </button>
             ))}
@@ -235,7 +252,7 @@ export default function Page() {
               <section>
                 <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
                   <div><p className="mb-1 text-sm font-medium text-indigo-600">Directory</p><h2 className="text-3xl font-semibold tracking-tight">Students</h2></div>
-                  <button onClick={() => setAddOpen(true)} className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"><Plus className="size-4" />Add student</button>
+                  <button onClick={() => { setCreatedPassword(null); setCredentialEmailStatus(null); setAddOpen(true); }} className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"><Plus className="size-4" />Add student</button>
                 </div>
                 <div className="rounded-2xl border border-border/70 bg-card shadow-sm">
                   <div className="flex flex-col gap-3 border-b border-border/70 p-4 sm:flex-row sm:items-center">
@@ -365,7 +382,7 @@ export default function Page() {
               <form onSubmit={handleCreateStudent} className="mt-6 grid gap-4 sm:grid-cols-2">
                 <label className="text-sm font-medium sm:col-span-2">Full name<input name="name" required className="mt-2 h-10 w-full rounded-xl border border-input bg-background px-3 font-normal outline-none focus:ring-2 focus:ring-indigo-500" placeholder="e.g. Aarav Mehta" /></label>
                 <label className="text-sm font-medium">Phone number<input name="phone" required className="mt-2 h-10 w-full rounded-xl border border-input bg-background px-3 font-normal outline-none focus:ring-2 focus:ring-indigo-500" placeholder="+91 98765 43210" /></label>
-                <label className="text-sm font-medium">Email address<input name="email" className="mt-2 h-10 w-full rounded-xl border border-input bg-background px-3 font-normal outline-none focus:ring-2 focus:ring-indigo-500" placeholder="name@email.com" /></label>
+                <label className="text-sm font-medium">Email address<input name="email" type="email" required className="mt-2 h-10 w-full rounded-xl border border-input bg-background px-3 font-normal outline-none focus:ring-2 focus:ring-indigo-500" placeholder="name@email.com" /></label>
                 <label className="text-sm font-medium">Seat/Table number<input name="seatNumber" value={newStudentSeat} onChange={(e) => setNewStudentSeat(e.target.value)} className="mt-2 h-10 w-full rounded-xl border border-input bg-background px-3 font-normal outline-none focus:ring-2 focus:ring-indigo-500" placeholder="e.g. A-12" /></label>
                 <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" name="isGuest" defaultChecked className="rounded" />Register as Guest</label>
                 <div className="sm:col-span-2 flex justify-end gap-3 pt-2">
@@ -375,9 +392,9 @@ export default function Page() {
               </form>
               {createdPassword && (
                 <div className="mt-4 rounded-xl bg-emerald-50 border border-emerald-200 p-4">
-                  <p className="text-sm font-semibold text-emerald-700">✅ Student created!</p>
+                  <p className="text-sm font-semibold text-emerald-700">Student created</p>
                   <p className="text-xs text-emerald-600 mt-1">Login password: <span className="font-mono font-bold">{createdPassword}</span></p>
-                  <p className="text-xs text-emerald-600">Student can change password after first login.</p>
+                  <p className="text-xs text-emerald-600">{credentialEmailStatus || 'Student can use this password on the student dashboard.'}</p>
                 </div>
               )}
             </div>
